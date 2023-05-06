@@ -1,3 +1,6 @@
+# large data folder
+SDSS_Data_Subset/Spectra/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -134,6 +137,9 @@ venv.bak/
 
 # Rope project settings
 .ropeproject
+
+# data folder
+Spectral Classifier\SDSS_Data_Subset\Spectra
 
 # mkdocs documentation
 /site
