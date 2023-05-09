@@ -8,7 +8,7 @@ Created on Thu May  4 14:30:00 2023
 import time
 
 from astroquery.sdss import SDSS
-from astropy.table import Table
+from astropy.table import Table, vstack
 from astropy.io import fits
 
 import numpy as np
@@ -299,10 +299,53 @@ def GetDataBounds():
     # lmbMin = 3553.0396325911483
     # lmbMax = 10387.235932988217
 
+def PrepDataIndexing (table):
+    table['subclass'] = table['subclass'].astype(str)
+    array = table[['specobjid', 'subclass']].as_array()
+    np.random.shuffle(array)
+    return Table(array)
+
+
+def PartitionTrainingData():
+    results_o = Table.read(DataListDir + 'ClassO_Data.fits')
+    results_b = Table.read(DataListDir + 'ClassB_Data.fits')
+    results_a = Table.read(DataListDir + 'ClassA_Data.fits')
+    results_f = Table.read(DataListDir + 'ClassF_Data.fits')
+    results_g = Table.read(DataListDir + 'ClassG_Data.fits')
+    results_k = Table.read(DataListDir + 'ClassK_Data.fits')
+    results_m = Table.read(DataListDir + 'ClassM_Data.fits')
+    
+    results_o = PrepDataIndexing(results_o)
+    results_b = PrepDataIndexing(results_b)
+    results_a = PrepDataIndexing(results_a)
+    results_f = PrepDataIndexing(results_f)
+    results_g = PrepDataIndexing(results_g)
+    results_k = PrepDataIndexing(results_k)
+    results_m = PrepDataIndexing(results_m)
+    
+    trainingdata = vstack([results_o[['specobjid', 'subclass']][:800], results_b[['specobjid', 'subclass']][:800], 
+                           results_a[['specobjid', 'subclass']][:800], results_f[['specobjid', 'subclass']][:800], 
+                           results_g[['specobjid', 'subclass']][:800], results_k[['specobjid', 'subclass']][:800], 
+                           results_m[['specobjid', 'subclass']][:800]
+                         ])
+    trainingdata = PrepDataIndexing(trainingdata)
+    
+    testingdata = vstack([results_o[['specobjid', 'subclass']][-200:], results_b[['specobjid', 'subclass']][-200:], 
+                          results_a[['specobjid', 'subclass']][-200:], results_f[['specobjid', 'subclass']][-200:], 
+                          results_g[['specobjid', 'subclass']][-200:], results_k[['specobjid', 'subclass']][-200:], 
+                          results_m[['specobjid', 'subclass']][-200:]
+                        ])
+    testingdata = PrepDataIndexing(testingdata)
+    
+    trainingdata.write(DataListDir + 'Training_Data.fits', format='fits', overwrite=True)
+    testingdata.write(DataListDir + 'Testing_Data.fits', format='fits', overwrite=True)
+
 ### Disabled ### QueryStars()
 
 ### Disabled ### StoreSpectralData()
 
-GetDataBounds()
+### Disabled ### GetDataBounds()
+
+PartitionTrainingData()
 
 print('success')
