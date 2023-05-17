@@ -10,71 +10,67 @@ from astropy.io import fits
 
 import numpy as np
 import matplotlib.pyplot as plt
+
 import tensorflow as tf
+#from sklearn.model_selection import GridSearchCV
+#from keras.layers import LeakyReLU
 
-DataListDir = 'SDSS_Data_Subset/'
-DataFileDir = DataListDir + 'Spectra/'
 
-trainingTable = Table.read(DataListDir + 'Training_Data.fits')
-testingTable = Table.read(DataListDir + 'Testing_Data.fits')
+DATA_LIST_DIR = 'SDSS_Data_Subset/'
+DATA_FILE_DIR = DATA_LIST_DIR + 'Spectra/'
+PLOTTING_DIR = 'Learning_Plots/'
+
+SPECTRA_MIN_COUNT = 2889
+SPECTRA_MAX_COUNT = 4631
 
 # Original Survey
-fluxMax = 252.4149169921875
-lmbMin = 3552.2204983897977
-lmbMax = 10399.206408133097
+FLUX_MAX = 252.4149169921875
+LAMBDA_MIN = 3552.2204983897977
+LAMBDA_MAX = 10399.206408133097
 
 # From current data set
-# fluxMax = 3460.751708984375
-# lmbMin = 3553.0396325911483
-# lmbMax = 10387.235932988217
+# FLUX_MAX = 3460.751708984375
+# LAMBDA_MIN = 3553.0396325911483
+# LAMBDA_MAX = 10387.235932988217
 
-spectralSizeMin = 2889
-spectralSizeMax = 4631
+# Training Parameters:
 
-'''
-for i in range(len(trainingTable)):
-    if i%100 == 0:
-        print(f'{i} / {len(trainingTable)}')
-    samplestar = Table(trainingTable[i])
-    samplename = samplestar['specobjid'][0]
-    with fits.open(DataFileDir + f'{samplename}.fits') as hdu:
-        spectrum = hdu[1].data
-    testlen = len(spectrum['flux'])
-    spectralSizeMax = max(spectralSizeMax, testlen)
-    spectralSizeMin = min(spectralSizeMin, testlen)
+WINDOW_SIZE = 10
+EPOCHS = 85
 
-# 2889
-# 4631
-print(spectralSizeMin)
-print(spectralSizeMax)
+trainingTable = Table.read(DATA_LIST_DIR + 'Training_Data.fits')
+testingTable = Table.read(DATA_LIST_DIR + 'Testing_Data.fits')
 
-for i in range(len(testingTable)):
-    if i%100 == 0:
-        print(f'{i} / {len(testingTable)}')
-    samplestar = Table(testingTable[i])
-    samplename = samplestar['specobjid'][0]
-    with fits.open(DataFileDir + f'{samplename}.fits') as hdu:
-        spectrum = hdu[1].data
-    testlen = len(spectrum['flux'])
-    spectralSizeMax = max(spectralSizeMax, testlen)
-    spectralSizeMin = min(spectralSizeMin, testlen)
-
-print(spectralSizeMin)
-print(spectralSizeMax)
-'''
-#tf.keras.layers.Conv1D(32, 10, activation='relu'),
-
-model = tf.keras.models.Sequential([
-    tf.keras.layers.Conv1D(32, 3, activation='relu'),
-    tf.keras.layers.Flatten(),
-    tf.keras.layers.Dense(300, activation='relu'),
-    tf.keras.layers.Dropout(0.2),
-    tf.keras.layers.Dense(200, activation='relu'),
-    tf.keras.layers.Dropout(0.2),
-    tf.keras.layers.Dense(7, activation='softmax')
-])
-
-model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+def CheckSpectralRange():
+    spectralSizeMax = 4000
+    spectralSizeMin = 4000
+    
+    for i in range(len(trainingTable)):
+        if i%100 == 0:
+            print(f'{i} / {len(trainingTable)}')
+        samplestar = Table(trainingTable[i])
+        samplename = samplestar['specobjid'][0]
+        with fits.open(DATA_FILE_DIR + f'{samplename}.fits') as hdu:
+            spectrum = hdu[1].data
+        testlen = len(spectrum['flux'])
+        spectralSizeMax = max(spectralSizeMax, testlen)
+        spectralSizeMin = min(spectralSizeMin, testlen)
+        print(spectralSizeMin)
+        print(spectralSizeMax)
+    
+    for i in range(len(testingTable)):
+        if i%100 == 0:
+            print(f'{i} / {len(testingTable)}')
+        samplestar = Table(testingTable[i])
+        samplename = samplestar['specobjid'][0]
+        with fits.open(DATA_FILE_DIR + f'{samplename}.fits') as hdu:
+            spectrum = hdu[1].data
+        testlen = len(spectrum['flux'])
+        spectralSizeMax = max(spectralSizeMax, testlen)
+        spectralSizeMin = min(spectralSizeMin, testlen)
+    
+    print(spectralSizeMin)
+    print(spectralSizeMax)
 
 class_mapping = {
     'O': np.array([0]),
@@ -86,120 +82,150 @@ class_mapping = {
     'M': np.array([6])
 }
 
-for i in range(int(len(trainingTable))):
-    trainingStar = Table(trainingTable[i])
-    starName = trainingStar['specobjid'][0]
-    with fits.open(DataFileDir + f'{starName}.fits') as hdu:
-        spectrum = hdu[1].data
-    # Normalize
-    flux = spectrum['flux']/fluxMax
-    flux = np.clip(flux, 0, np.inf)
-    wavelength = (10 ** spectrum['loglam'] - lmbMin)/lmbMax
+def PrepData(sourceTable):
+    input_data_list = []
+    output_data_list = []
     
-    # Smooth
-    window_size = 50
-    smoothed_flux = np.convolve(flux, np.ones(window_size)/window_size, mode='same')
-    
-    # plt.plot(wavelength, smoothed_flux)
-    # plt.xlabel('Wavelength [$\AA$]')
-    # plt.ylabel('Flux [10$^{-17}$ erg/cm$^2$/s/$\AA$]')
-    # plt.show()
-    
-    if (zeros := spectralSizeMax - len(flux)) > 0:
-        zero_array = np.zeros(zeros)
-        flux = np.append(flux, zero_array)
-        wavelength = np.append(wavelength, zero_array)
-    
-    sample_data = np.array([np.concatenate((flux[:, np.newaxis], wavelength[:, np.newaxis]), axis=1)])
-    sample_class = class_mapping[trainingStar['subclass'][0][0]]
-    
-    if (i==0):
-        input_data = sample_data
-        ytrain = sample_class
-    else:
-        input_data = np.concatenate((input_data, sample_data), axis=0)
-        ytrain = np.concatenate((ytrain, sample_class), axis=0)
-    #prediction = model.predict(input_data)
-    
-    #if(i%10 == 0):
-    #    print('')
-    #    print('Modelled as:')
-    #    print(prediction)
-    #    predicted_index = np.argmax(prediction)
-    #    predicted_class = list(class_mapping.keys())[predicted_index]
-    #    print(f'Predicted: {predicted_class}: with {np.max(prediction)} certainty')
-    #    print(f"Actual: {trainingStar['subclass'][0][0]}")
-    #    print('\n\n')
-    
-model.fit(input_data, ytrain, epochs=20, shuffle=True)
+    for i in range(len(sourceTable)):
+        if i%100 == 0:
+            print(f'{i} / {len(sourceTable)}')
+        testingStar = Table(sourceTable[i])
+        starName = testingStar['specobjid'][0]
+        with fits.open(DATA_FILE_DIR + f'{starName}.fits') as hdu:
+            spectrum = hdu[1].data
 
-for i in range(len(testingTable)):
-    if i%100 == 0:
-        print(i)
-    testingStar = Table(testingTable[i])
-    starName = testingStar['specobjid'][0]
-    with fits.open(DataFileDir + f'{starName}.fits') as hdu:
-        spectrum = hdu[1].data
-    
-    # Normalize
-    flux = spectrum['flux']/fluxMax
-    flux = np.clip(flux, 0, np.inf)
-    wavelength = (10 ** spectrum['loglam'] - lmbMin)/lmbMax
-    
-    # Smooth
-    window_size = 50
-    smoothed_flux = np.convolve(flux, np.ones(window_size)/window_size, mode='same')
-    
-    # plt.plot(wavelength, smoothed_flux)
-    # plt.xlabel('Wavelength [$\AA$]')
-    # plt.ylabel('Flux [10$^{-17}$ erg/cm$^2$/s/$\AA$]')
-    # plt.show()
-    
-    if (zeros := spectralSizeMax - len(flux)) > 0:
-        zero_array = np.zeros(zeros)
-        flux = np.append(flux, zero_array)
-        wavelength = np.append(wavelength, zero_array)
-    
-    sample_data = np.array([np.concatenate((flux[:, np.newaxis], wavelength[:, np.newaxis]), axis=1)])
-    sample_class = class_mapping[testingStar['subclass'][0][0]]
-    
-    if (i==0):
-        input_data = sample_data
-        ytest = sample_class
-    else:
-        input_data = np.concatenate((input_data, sample_data), axis=0)
-        ytest = np.concatenate((ytest, sample_class), axis=0)
+        # Normalize
+        flux = spectrum['flux']/FLUX_MAX
+        flux = np.clip(flux, 0, np.inf)
+        wavelength = (10 ** spectrum['loglam'] - LAMBDA_MIN)/LAMBDA_MAX
 
-model.evaluate(input_data, ytest, verbose=2)
+        # Smooth
+        flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE, mode='same')
 
-# Loss, accuracy
+        #if i==0:
+        #    plt.plot(wavelength, flux)
+        #    plt.xlabel('Wavelength [$\AA$]')
+        #    plt.ylabel('Flux [10$^{-17}$ erg/cm$^2$/s/$\AA$]')
+        #    plt.show()
 
-print("\nNo Conv Layer:")
-print("20 epochs:")
-print("WindowSize 200:")
-print("(300, 200) -> [0.8667, 0.6207]")
-print("WindowSize 50:")
-print("(300, 200) -> [0.9085, 0.5793]")
+        if (zeros := SPECTRA_MAX_COUNT - len(flux)) > 0:
+            zero_array = np.zeros(zeros)
+            flux = np.append(flux, zero_array)
+            wavelength = np.append(wavelength, zero_array)
 
-print("\n 5 Epochs:")
-print("(100, 250) -> [1.38, 0.43999]")
-print("(200, 250) -> [1.18, 0.5486]")
-print("(300, 150) + ws200 -> [1.0841, 0.5871]")
-print("(300, 150) + ws50 -> [1.1121, 0.5593]")
-print("(300, 150) + ws10 -> [1.1060, 0.5793]")
-print("(300, 150) + ws1 -> [1.1566, 0.5186]")
-print("(300, 150, 100) -> [1.1057,0.5529]")
-print("(450)      -> [1.2499, 0.4486]>")
-print("(150, 150, 150) -> (1.2533, 0.4857)")
-print("(200, 150, 100) -> (1.2569, 0.5507)")
+        sample_data = np.array([np.concatenate((flux[:, np.newaxis], wavelength[:, np.newaxis]), axis=1)])
+        sample_class = class_mapping[testingStar['subclass'][0][0]]
 
-print("\nWith Conv Layer:")
-print("Conv 32, 10")
-print("Window 200")
-print("(300, 200) -> (0.6864, 0.7164)")
+        input_data_list.append(sample_data)
+        output_data_list.append(sample_class)
 
+    input_data = np.array(input_data_list)
+    output_data = np.array(output_data_list)
+    return (input_data, output_data)
+
+#(x_train, y_train) = PrepData(trainingTable)
+#(x_test, y_test) = PrepData(testingTable)
+
+x_train = np.load('x_train.npy')
+y_train = np.load('y_train.npy')
+x_test = np.load('x_test.npy')
+y_test = np.load('y_test.npy')
+ 
+def create_model(nodes_per_layer, learning_rate, dropout_rate):
+    model = tf.keras.models.Sequential()
+    
+    model.add(tf.keras.layers.Conv1D(32, 10, activation='relu'))
+    model.add(tf.keras.layers.Flatten())
+    
+    model.add(tf.keras.layers.Dense(10, activation='relu'))
+    
+    for nodes in nodes_per_layer:
+        model.add(tf.keras.layers.Dense(nodes, activation='relu'))
+        model.add(tf.keras.layers.Dropout(dropout_rate))
+    
+    model.add(tf.keras.layers.Dense(7, activation='softmax'))
+    
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    
+    model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    
+    return model
+
+layers = [100]
+
+file_name = 'Layer-100_Learning-0001_Window-10_Conv-32-10'
+
+model = create_model(layers, 0.0001, 0.1)
+
+training_loss = []
+training_accuracy = []
+
+testing_loss = []
+testing_accuracy = []
+
+def Train_Model(epochs = EPOCHS):
+    for epoch in range(epochs):
+        training = model.fit(x_train, y_train, epochs=1, shuffle=True)
+        training_loss.append(training.history['loss'][0])
+        training_accuracy.append(training.history['accuracy'][0])
+        
+        testing = model.evaluate(x_test, y_test, verbose=2)
+        testing_loss.append(testing[0])
+        testing_accuracy.append(testing[1])
+        
+        print(f'\nEpochs Completed: {epoch+1} / {epochs}\n')
+    
+    return
+
+def Print_Learning(isExtended = False):
+    plot_suffix = '.png'
+    data_suffix = '.csv'
+    if isExtended:
+        plot_suffix = '_Long' + plot_suffix
+        data_suffix = '_Long' + data_suffix
+    
+    plt.figure()
+    plt.plot(range(len(training_accuracy)), training_accuracy, label='Train Accuracy')
+    plt.plot(range(len(training_loss)), training_loss, label='Train Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Metric')
+    plt.title('Training Accuracy and Loss')
+    plt.legend()
+
+    plt.savefig(PLOTTING_DIR + f'{file_name}_Training.png')
+
+    plt.show()
+    data = np.column_stack((range(len(training_accuracy)), training_accuracy, training_loss))
+    np.savetxt(PLOTTING_DIR + f'{file_name}_Training.csv', data, delimiter=',')
+
+    plt.figure()
+    plt.plot(range(len(testing_accuracy)), testing_accuracy, label='Validation Accuracy')
+    plt.plot(range(len(testing_loss)), testing_loss, label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Metric')
+    plt.title('Validation Accuracy and Loss')
+    plt.legend()
+
+    plt.savefig(PLOTTING_DIR + f'{file_name}_Validation.png')
+
+    plt.show()
+    data = np.column_stack((range(len(testing_accuracy)), testing_accuracy, testing_loss))
+    np.savetxt(PLOTTING_DIR + f'{file_name}_Validation.csv', data, delimiter=',')
+
+print("\n!TRAINING!\n")
+
+Train_Model(1)
+
+model.optimizer.learning_rate.assign(0.00001)
+
+Train_Model(2)
+
+Print_Learning()
 
 # model.save('model.h5')
 # loaded_model = tf.keras.models.load_model('model.h5')
 # OR
 # model.load_weights('my_model_weights.h5')
+
+
+
