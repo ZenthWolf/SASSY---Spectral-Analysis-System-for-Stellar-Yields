@@ -8,6 +8,7 @@ Created on Sat May  6 13:13:07 2023
 from astropy.table import Table
 from astropy.io import fits
 
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -151,11 +152,19 @@ def create_model(nodes_per_layer, learning_rate, dropout_rate):
     
     return model
 
-layers = [100]
+layers = [700]
+initial_learning = 0.0001
 
-file_name = 'Layer-100_Learning-0001_Window-10_Conv-32-10'
+model = create_model(layers, initial_learning, 0.1)
 
-model = create_model(layers, 0.0001, 0.1)
+file_name = 'Layer'
+
+for l in layers:
+    file_name += f'-{l}'
+
+file_name += f'_Learning-E{int(int(math.log10(initial_learning)))}'
+file_name += f'_Window-{WINDOW_SIZE}'
+file_name += '_Conv-32-10'
 
 training_loss = []
 training_accuracy = []
@@ -192,11 +201,11 @@ def Print_Learning(isExtended = False):
     plt.title('Training Accuracy and Loss')
     plt.legend()
 
-    plt.savefig(PLOTTING_DIR + f'{file_name}_Training.png')
+    plt.savefig(PLOTTING_DIR + f'{file_name}_Training' + plot_suffix)
 
     plt.show()
     data = np.column_stack((range(len(training_accuracy)), training_accuracy, training_loss))
-    np.savetxt(PLOTTING_DIR + f'{file_name}_Training.csv', data, delimiter=',')
+    np.savetxt(PLOTTING_DIR + f'{file_name}_Training'  + data_suffix, data, delimiter=',')
 
     plt.figure()
     plt.plot(range(len(testing_accuracy)), testing_accuracy, label='Validation Accuracy')
@@ -206,21 +215,52 @@ def Print_Learning(isExtended = False):
     plt.title('Validation Accuracy and Loss')
     plt.legend()
 
-    plt.savefig(PLOTTING_DIR + f'{file_name}_Validation.png')
+    plt.savefig(PLOTTING_DIR + f'{file_name}_Validation' + plot_suffix)
 
     plt.show()
     data = np.column_stack((range(len(testing_accuracy)), testing_accuracy, testing_loss))
-    np.savetxt(PLOTTING_DIR + f'{file_name}_Validation.csv', data, delimiter=',')
+    np.savetxt(PLOTTING_DIR + f'{file_name}_Validation'  + data_suffix, data, delimiter=',')
 
+def Compare (LossRange = [0.3, 0.8], AccRange = [0.6, 1.0], save = False):
+    plt.figure()
+    plt.plot(range(len(training_loss)), training_loss, label='Training')
+    plt.plot(range(len(testing_loss)), testing_loss, label='Validation')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Loss Comparison')
+    plt.ylim(LossRange)
+    plt.legend()
+    
+    if save:
+        plt.savefig(PLOTTING_DIR + f'{file_name}_Loss_Comparison.png')
+    
+    plt.show()
+    
+    plt.figure()
+    plt.plot(range(len(training_accuracy)), training_accuracy, label='Training')
+    plt.plot(range(len(testing_accuracy)), testing_accuracy, label='Validation')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy Comparison')
+    plt.ylim(AccRange)
+    plt.legend()
+ 
+    if save:
+        plt.savefig(PLOTTING_DIR + f'{file_name}_Accuracy_Comparison.png')
+    
+    plt.show()
+ 
 print("\n!TRAINING!\n")
 
-Train_Model(1)
+Train_Model(30)
 
-model.optimizer.learning_rate.assign(0.00001)
+model.optimizer.learning_rate.assign(initial_learning/10)
 
-Train_Model(2)
+Train_Model(770)
 
 Print_Learning()
+
+Compare()
 
 # model.save('model.h5')
 # loaded_model = tf.keras.models.load_model('model.h5')

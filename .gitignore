@@ -1,8 +1,9 @@
 # large data folder
 SDSS_Data_Subset/Spectra/*
 
-# Stored models (for now?)
+# Stored models and local configs for expediency
 *.h5
+*.npy
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
