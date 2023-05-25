@@ -28,6 +28,8 @@ SPECTRA_MAX_COUNT = 4631
 FLUX_MAX = 252.4149169921875
 LAMBDA_MIN = 3552.2204983897977
 LAMBDA_MAX = 10399.206408133097
+LAMBDA_MIN = np.log10(LAMBDA_MIN)
+LAMBDA_MAX = np.log10(LAMBDA_MAX)
 
 # From current data set
 # FLUX_MAX = 3460.751708984375
@@ -43,8 +45,8 @@ trainingTable = Table.read(DATA_LIST_DIR + 'Training_Data.fits')
 testingTable = Table.read(DATA_LIST_DIR + 'Testing_Data.fits')
 
 def CheckSpectralRange():
-    spectralSizeMax = 4000
-    spectralSizeMin = 4000
+    spectralSizeMax = -np.inf
+    spectralSizeMin = np.inf
     
     for i in range(len(trainingTable)):
         if i%100 == 0:
@@ -94,32 +96,74 @@ def PrepData(sourceTable):
         starName = testingStar['specobjid'][0]
         with fits.open(DATA_FILE_DIR + f'{starName}.fits') as hdu:
             spectrum = hdu[1].data
-
+        
         # Normalize
         flux = spectrum['flux']/FLUX_MAX
         flux = np.clip(flux, 0, np.inf)
         wavelength = (10 ** spectrum['loglam'] - LAMBDA_MIN)/LAMBDA_MAX
-
+        
         # Smooth
         flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE, mode='same')
-
+        
         #if i==0:
         #    plt.plot(wavelength, flux)
         #    plt.xlabel('Wavelength [$\AA$]')
         #    plt.ylabel('Flux [10$^{-17}$ erg/cm$^2$/s/$\AA$]')
         #    plt.show()
-
+        
         if (zeros := SPECTRA_MAX_COUNT - len(flux)) > 0:
             zero_array = np.zeros(zeros)
             flux = np.append(flux, zero_array)
             wavelength = np.append(wavelength, zero_array)
-
+        
         sample_data = np.array([np.concatenate((flux[:, np.newaxis], wavelength[:, np.newaxis]), axis=1)])
         sample_class = class_mapping[testingStar['subclass'][0][0]]
-
+        
         input_data_list.append(sample_data)
         output_data_list.append(sample_class)
+    
+    input_data = np.array(input_data_list)
+    output_data = np.array(output_data_list)
+    return (input_data, output_data)
 
+def PrepDataLocalNorm(sourceTable):
+    input_data_list = []
+    output_data_list = []
+    
+    for i in range(len(sourceTable)):
+        if i%100 == 0:
+            print(f'{i} / {len(sourceTable)}')
+        testingStar = Table(sourceTable[i])
+        starName = testingStar['specobjid'][0]
+        with fits.open(DATA_FILE_DIR + f'{starName}.fits') as hdu:
+            spectrum = hdu[1].data
+        
+        # Normalize
+        flux = np.clip(spectrum['flux'], 0, np.inf)
+        localFluxMax = np.max(flux)
+        flux = spectrum['flux']/localFluxMax
+        wavelength = (spectrum['loglam'] - LAMBDA_MIN)/LAMBDA_MAX
+        
+        # Smooth
+        flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE, mode='same')
+        
+        #if i==0:
+        #    plt.plot(wavelength, flux)
+        #    plt.xlabel('Wavelength [$\AA$]')
+        #    plt.ylabel('Flux [10$^{-17}$ erg/cm$^2$/s/$\AA$]')
+        #    plt.show()
+        
+        if (zeros := SPECTRA_MAX_COUNT - len(flux)) > 0:
+            zero_array = np.zeros(zeros)
+            flux = np.append(flux, zero_array)
+            wavelength = np.append(wavelength, zero_array)
+        
+        sample_data = np.array([np.concatenate((flux[:, np.newaxis], wavelength[:, np.newaxis]), axis=1)])
+        sample_class = class_mapping[testingStar['subclass'][0][0]]
+        
+        input_data_list.append(sample_data)
+        output_data_list.append(sample_class)
+    
     input_data = np.array(input_data_list)
     output_data = np.array(output_data_list)
     return (input_data, output_data)
@@ -127,15 +171,18 @@ def PrepData(sourceTable):
 #(x_train, y_train) = PrepData(trainingTable)
 #(x_test, y_test) = PrepData(testingTable)
 
-x_train = np.load('x_train.npy')
-y_train = np.load('y_train.npy')
-x_test = np.load('x_test.npy')
-y_test = np.load('y_test.npy')
- 
+(x_train, y_train) = PrepDataLocalNorm(trainingTable)
+(x_test, y_test) = PrepDataLocalNorm(testingTable)
+
+#x_train = np.load('x_train.npy')
+#y_train = np.load('y_train.npy')
+#x_test = np.load('x_test.npy')
+#y_test = np.load('y_test.npy')
+
 def create_model(nodes_per_layer, learning_rate, dropout_rate):
     model = tf.keras.models.Sequential()
     
-    model.add(tf.keras.layers.Conv1D(32, 10, activation='relu'))
+    model.add(tf.keras.layers.Conv1D(32, 32, activation='relu'))
     model.add(tf.keras.layers.Flatten())
     
     model.add(tf.keras.layers.Dense(10, activation='relu'))
@@ -152,12 +199,12 @@ def create_model(nodes_per_layer, learning_rate, dropout_rate):
     
     return model
 
-layers = [700]
+layers = [700, 700, 700, 700, 700]
 initial_learning = 0.0001
 
 model = create_model(layers, initial_learning, 0.1)
 
-file_name = 'Layer'
+file_name = 'LogLam_Conv32-32_Layer'
 
 for l in layers:
     file_name += f'-{l}'
@@ -200,13 +247,13 @@ def Print_Learning(isExtended = False):
     plt.ylabel('Metric')
     plt.title('Training Accuracy and Loss')
     plt.legend()
-
+    
     plt.savefig(PLOTTING_DIR + f'{file_name}_Training' + plot_suffix)
-
+    
     plt.show()
-    data = np.column_stack((range(len(training_accuracy)), training_accuracy, training_loss))
+    data = np.column_stack((training_accuracy, training_loss))
     np.savetxt(PLOTTING_DIR + f'{file_name}_Training'  + data_suffix, data, delimiter=',')
-
+    
     plt.figure()
     plt.plot(range(len(testing_accuracy)), testing_accuracy, label='Validation Accuracy')
     plt.plot(range(len(testing_loss)), testing_loss, label='Validation Loss')
@@ -214,11 +261,11 @@ def Print_Learning(isExtended = False):
     plt.ylabel('Metric')
     plt.title('Validation Accuracy and Loss')
     plt.legend()
-
+    
     plt.savefig(PLOTTING_DIR + f'{file_name}_Validation' + plot_suffix)
-
+    
     plt.show()
-    data = np.column_stack((range(len(testing_accuracy)), testing_accuracy, testing_loss))
+    data = np.column_stack((testing_accuracy, testing_loss))
     np.savetxt(PLOTTING_DIR + f'{file_name}_Validation'  + data_suffix, data, delimiter=',')
 
 def Compare (LossRange = [0.3, 0.8], AccRange = [0.6, 1.0], save = False):
@@ -244,19 +291,71 @@ def Compare (LossRange = [0.3, 0.8], AccRange = [0.6, 1.0], save = False):
     plt.title('Accuracy Comparison')
     plt.ylim(AccRange)
     plt.legend()
- 
+    
     if save:
         plt.savefig(PLOTTING_DIR + f'{file_name}_Accuracy_Comparison.png')
     
     plt.show()
- 
+
+
+#ParamList = []
+#ly = [700, 700]
+#il = int(int(math.log10(0.0001)))
+#WS = 1
+#ParamList.append([ly, il, WS])
+
+def CombinePlot(ParamList):
+    plt.figure()
+    
+    for name in ParamList:
+        file_name = name[3] + 'Layer'
+        label_name= 'Lys'
+        
+        for l in name[0]:
+            file_name += f'-{l}'
+            label_name += f'-{l}'
+            
+        
+        file_name += f'_Learning-E{name[1]}'
+        label_name += f'_Lr-E{name[1]}'
+        
+        file_name += f'_Window-{name[2]}'
+        label_name += f'_WS-{name[2]}'
+        
+        file_name += '_Conv-32-10_Validation.csv'
+        
+        label_name = name[3]
+        if label_name == '':
+            label_name = 'Base_'
+        
+        data = np.loadtxt(PLOTTING_DIR + file_name, delimiter=',')
+        accuracy = []
+        for p in data:
+            accuracy.append(p[0])
+        plt.plot(range(len(accuracy)), accuracy, label=label_name)
+    
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy Comparison')
+    plt.ylim([0.6, 1.0])
+    plt.legend()
+    
+    plt.savefig(PLOTTING_DIR + 'Combined_Comparison_Validation.png')
+    
+    plt.show()
+
 print("\n!TRAINING!\n")
 
-Train_Model(30)
+Train_Model(10)
 
-model.optimizer.learning_rate.assign(initial_learning/10)
+model.optimizer.learning_rate.assign(initial_learning/5)
 
-Train_Model(770)
+Train_Model(20)
+#for i in range(1):
+#    model.optimizer.learning_rate.assign(initial_learning/(10**(i+1)))
+#    Train_Model(5*(i+1))
+
+
 
 Print_Learning()
 
