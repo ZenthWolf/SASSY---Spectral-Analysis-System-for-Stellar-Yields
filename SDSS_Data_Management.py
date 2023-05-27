@@ -123,7 +123,7 @@ def StoreSpectralData():
     
     for s in stellar_class:
         DownloadData(s, maxIndex)
-        time.sleep(600)
+        time.sleep(120)
 
 def SearchClassBounds(stellar_class, fluxMax, lmbMin, lmbMax):
     MnemonicDict = {
@@ -185,15 +185,15 @@ def PrepDataIndexing (table):
 
 
 def PartitionTrainingData():
-    results_o = Table.read(DataListDir + 'ClassO_Data_Annex.fits')[:1500]
-    results_b = Table.read(DataListDir + 'ClassB_Data_Annex.fits')[:1500]
-    results_a = Table.read(DataListDir + 'ClassA_Data_Annex.fits')[:1500]
-    results_f = Table.read(DataListDir + 'ClassF_Data_Annex.fits')[:1500]
-    results_g = Table.read(DataListDir + 'ClassG_Data_Annex.fits')[:1500]
-    results_k = Table.read(DataListDir + 'ClassK_Data_Annex.fits')[:1500]
-    results_m = Table.read(DataListDir + 'ClassM_Data_Annex.fits')[:1500]
+    #results_o = Table.read(DataListDir + 'ClassO_Data_Annex.fits')[:1500]
+    results_b = Table.read(DataListDir + 'ClassB_Data_Annex.fits')[:2000]
+    results_a = Table.read(DataListDir + 'ClassA_Data_Annex.fits')[:2000]
+    results_f = Table.read(DataListDir + 'ClassF_Data_Annex.fits')[:2000]
+    results_g = Table.read(DataListDir + 'ClassG_Data_Annex.fits')[:2000]
+    results_k = Table.read(DataListDir + 'ClassK_Data_Annex.fits')[:2000]
+    results_m = Table.read(DataListDir + 'ClassM_Data_Annex.fits')[:2000]
     
-    results_o = PrepDataIndexing(results_o)
+    #results_o = PrepDataIndexing(results_o)
     results_b = PrepDataIndexing(results_b)
     results_a = PrepDataIndexing(results_a)
     results_f = PrepDataIndexing(results_f)
@@ -201,17 +201,17 @@ def PartitionTrainingData():
     results_k = PrepDataIndexing(results_k)
     results_m = PrepDataIndexing(results_m)
     
-    trainingdata = vstack([results_o[['specobjid', 'subclass']][:1200], results_b[['specobjid', 'subclass']][:1200], 
-                           results_a[['specobjid', 'subclass']][:1200], results_f[['specobjid', 'subclass']][:1200], 
-                           results_g[['specobjid', 'subclass']][:1200], results_k[['specobjid', 'subclass']][:1200], 
-                           results_m[['specobjid', 'subclass']][:1200]
+    trainingdata = vstack([results_b[['specobjid', 'subclass']][:1600],
+                           results_a[['specobjid', 'subclass']][:1600], results_f[['specobjid', 'subclass']][:1600],
+                           results_g[['specobjid', 'subclass']][:1600], results_k[['specobjid', 'subclass']][:1600],
+                           results_m[['specobjid', 'subclass']][:1600]
                          ])
     trainingdata = PrepDataIndexing(trainingdata)
     
-    testingdata = vstack([results_o[['specobjid', 'subclass']][-300:], results_b[['specobjid', 'subclass']][-300:], 
-                          results_a[['specobjid', 'subclass']][-300:], results_f[['specobjid', 'subclass']][-300:], 
-                          results_g[['specobjid', 'subclass']][-300:], results_k[['specobjid', 'subclass']][-300:], 
-                          results_m[['specobjid', 'subclass']][-300:]
+    testingdata = vstack([results_b[['specobjid', 'subclass']][-400:],
+                          results_a[['specobjid', 'subclass']][-400:], results_f[['specobjid', 'subclass']][-400:],
+                          results_g[['specobjid', 'subclass']][-400:], results_k[['specobjid', 'subclass']][-400:],
+                          results_m[['specobjid', 'subclass']][-400:]
                         ])
     testingdata = PrepDataIndexing(testingdata)
     

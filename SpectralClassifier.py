@@ -13,6 +13,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import tensorflow as tf
+from sklearn.metrics import classification_report
+from sklearn.metrics import precision_recall_fscore_support
 #from sklearn.model_selection import GridSearchCV
 #from keras.layers import LeakyReLU
 
@@ -21,15 +23,15 @@ DATA_LIST_DIR = 'SDSS_Data_Subset/'
 DATA_FILE_DIR = DATA_LIST_DIR + 'Spectra/'
 PLOTTING_DIR = 'Learning_Plots/'
 
-SPECTRA_MIN_COUNT = 2889
-SPECTRA_MAX_COUNT = 4631
+SPECTRA_MIN_COUNT = 2888
+SPECTRA_MAX_COUNT = 4633
 
 # Original Survey
 FLUX_MAX = 252.4149169921875
 LAMBDA_MIN = 3552.2204983897977
 LAMBDA_MAX = 10399.206408133097
-LAMBDA_MIN = np.log10(LAMBDA_MIN)
-LAMBDA_MAX = np.log10(LAMBDA_MAX)
+#LAMBDA_MIN = np.log10(LAMBDA_MIN)
+#LAMBDA_MAX = np.log10(LAMBDA_MAX)
 
 # From current data set
 # FLUX_MAX = 3460.751708984375
@@ -38,11 +40,11 @@ LAMBDA_MAX = np.log10(LAMBDA_MAX)
 
 # Training Parameters:
 
-WINDOW_SIZE = 10
+WINDOW_SIZE = 5
 EPOCHS = 85
 
-trainingTable = Table.read(DATA_LIST_DIR + 'Training_Data.fits')
-testingTable = Table.read(DATA_LIST_DIR + 'Testing_Data.fits')
+trainingTable = Table.read(DATA_LIST_DIR + 'Training_Data_Annex.fits')
+testingTable = Table.read(DATA_LIST_DIR + 'Testing_Data_Annex.fits')
 
 def CheckSpectralRange():
     spectralSizeMax = -np.inf
@@ -75,6 +77,7 @@ def CheckSpectralRange():
     print(spectralSizeMin)
     print(spectralSizeMax)
 
+'''
 class_mapping = {
     'O': np.array([0]),
     'B': np.array([1]),
@@ -83,6 +86,16 @@ class_mapping = {
     'G': np.array([4]),
     'K': np.array([5]),
     'M': np.array([6])
+}
+'''
+
+class_mapping = {
+    'B': np.array([0]),
+    'A': np.array([1]),
+    'F': np.array([2]),
+    'G': np.array([3]),
+    'K': np.array([4]),
+    'M': np.array([5])
 }
 
 def PrepData(sourceTable):
@@ -142,7 +155,7 @@ def PrepDataLocalNorm(sourceTable):
         flux = np.clip(spectrum['flux'], 0, np.inf)
         localFluxMax = np.max(flux)
         flux = spectrum['flux']/localFluxMax
-        wavelength = (spectrum['loglam'] - LAMBDA_MIN)/LAMBDA_MAX
+        wavelength = (10 ** spectrum['loglam'] - LAMBDA_MIN)/LAMBDA_MAX
         
         # Smooth
         flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE, mode='same')
@@ -179,19 +192,54 @@ def PrepDataLocalNorm(sourceTable):
 #x_test = np.load('x_test.npy')
 #y_test = np.load('y_test.npy')
 
+def AnalyzeClassification (predicted_labels, true_labels):
+    key = ['B', 'A', 'F', 'G', 'K', 'M']
+    
+    placement = {
+        'B': [0, 0, 0, 0, 0, 0],
+        'A': [0, 0, 0, 0, 0, 0],
+        'F': [0, 0, 0, 0, 0, 0],
+        'G': [0, 0, 0, 0, 0, 0],
+        'K': [0, 0, 0, 0, 0, 0],
+        'M': [0, 0, 0, 0, 0, 0]
+    }
+    
+    containment  = {
+        'B': [0, 0, 0, 0, 0, 0],
+        'A': [0, 0, 0, 0, 0, 0],
+        'F': [0, 0, 0, 0, 0, 0],
+        'G': [0, 0, 0, 0, 0, 0],
+        'K': [0, 0, 0, 0, 0, 0],
+        'M': [0, 0, 0, 0, 0, 0]
+    }
+    
+    report = classification_report(true_labels, predicted_labels)
+    
+    for ind, label in enumerate(predicted_labels):
+        truth = true_labels[ind]
+        
+        label_key = key[label]
+        truth_key = key[truth]
+        
+        placement[truth_key][label] += 1
+        containment[label_key][truth] += 1
+    
+    return (report, placement, containment)
+
+
 def create_model(nodes_per_layer, learning_rate, dropout_rate):
     model = tf.keras.models.Sequential()
     
     model.add(tf.keras.layers.Conv1D(32, 32, activation='relu'))
     model.add(tf.keras.layers.Flatten())
     
-    model.add(tf.keras.layers.Dense(10, activation='relu'))
+    model.add(tf.keras.layers.Dense(20, activation='relu'))
     
     for nodes in nodes_per_layer:
         model.add(tf.keras.layers.Dense(nodes, activation='relu'))
         model.add(tf.keras.layers.Dropout(dropout_rate))
     
-    model.add(tf.keras.layers.Dense(7, activation='softmax'))
+    model.add(tf.keras.layers.Dense(6, activation='softmax'))
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     
@@ -199,12 +247,12 @@ def create_model(nodes_per_layer, learning_rate, dropout_rate):
     
     return model
 
-layers = [700, 700, 700, 700, 700]
+layers = [700, 700]
 initial_learning = 0.0001
 
 model = create_model(layers, initial_learning, 0.1)
 
-file_name = 'LogLam_Conv32-32_Layer'
+file_name = 'Layer'
 
 for l in layers:
     file_name += f'-{l}'
@@ -219,6 +267,54 @@ training_accuracy = []
 testing_loss = []
 testing_accuracy = []
 
+precision_rating = []
+recall_rating = []
+f1_score = []
+
+report_history = []
+
+training_precision_rating = []
+training_recall_rating = []
+training_f1_score = []
+
+training_report_history = []
+
+placing_hist = {
+    'B': [],
+    'A': [],
+    'F': [],
+    'G': [],
+    'K': [],
+    'M': []
+}
+
+content_hist  = {
+    'B': [],
+    'A': [],
+    'F': [],
+    'G': [],
+    'K': [],
+    'M': []
+}
+
+training_placing_hist = {
+    'B': [],
+    'A': [],
+    'F': [],
+    'G': [],
+    'K': [],
+    'M': []
+}
+
+training_content_hist  = {
+    'B': [],
+    'A': [],
+    'F': [],
+    'G': [],
+    'K': [],
+    'M': []
+}
+
 def Train_Model(epochs = EPOCHS):
     for epoch in range(epochs):
         training = model.fit(x_train, y_train, epochs=1, shuffle=True)
@@ -228,6 +324,34 @@ def Train_Model(epochs = EPOCHS):
         testing = model.evaluate(x_test, y_test, verbose=2)
         testing_loss.append(testing[0])
         testing_accuracy.append(testing[1])
+        
+        prediction =  model.predict(x_test)
+        predicted_labels = np.argmax(prediction, axis=1)
+        true_labels = np.squeeze(y_test)
+        precision, recall, f1, _ = precision_recall_fscore_support(true_labels, predicted_labels, average=None)
+        precision_rating.append(precision)
+        recall_rating.append(recall)
+        f1_score.append(f1)
+        
+        report, placement, containment = AnalyzeClassification (predicted_labels, true_labels)
+        
+        report_history.append(report)
+        
+        for key in placement:
+            placing_hist[key].append(placement[key])
+            content_hist[key].append(content_hist[key])
+        
+        training_prediction =  model.predict(x_train)
+        training_predicted_labels = np.argmax(training_prediction, axis=1)
+        training_true_labels = np.squeeze(y_train)
+        
+        report, placement, containment = AnalyzeClassification (training_predicted_labels, training_true_labels)
+        
+        training_report_history.append(report)
+        
+        for key in placement:
+            training_placing_hist[key].append(placement[key])
+            training_content_hist[key].append(content_hist[key])
         
         print(f'\nEpochs Completed: {epoch+1} / {epochs}\n')
     
@@ -268,6 +392,22 @@ def Print_Learning(isExtended = False):
     data = np.column_stack((testing_accuracy, testing_loss))
     np.savetxt(PLOTTING_DIR + f'{file_name}_Validation'  + data_suffix, data, delimiter=',')
 
+def ExtractReportMetrics(metric):
+    star_metrics = {
+        'B': [],
+        'A': [],
+        'F': [],
+        'G': [],
+        'K': [],
+        'M': []
+    }
+    
+    for m in metric:
+        for i, star_type in enumerate(star_metrics.keys()):
+            star_metrics[star_type].append(m[i])
+        
+    return star_metrics
+
 def Compare (LossRange = [0.3, 0.8], AccRange = [0.6, 1.0], save = False):
     plt.figure()
     plt.plot(range(len(training_loss)), training_loss, label='Training')
@@ -294,6 +434,57 @@ def Compare (LossRange = [0.3, 0.8], AccRange = [0.6, 1.0], save = False):
     
     if save:
         plt.savefig(PLOTTING_DIR + f'{file_name}_Accuracy_Comparison.png')
+    
+    plt.show()
+    
+    star_metrics = ExtractReportMetrics(precision_rating)
+    
+    plt.figure()
+    for star_type in star_metrics:
+        data = star_metrics[star_type]
+        plt.plot(range(len(data)), data, label=f'{star_type}-Type')
+    plt.xlabel('Epoch')
+    plt.ylabel('Precision')
+    plt.title('Precision by Category')
+    plt.ylim(AccRange)
+    plt.legend()
+    
+    if save:
+        plt.savefig(PLOTTING_DIR + f'{file_name}_Category_Precision.png')
+    
+    plt.show()
+    
+    star_metrics = ExtractReportMetrics(recall_rating)
+    
+    plt.figure()
+    for star_type in star_metrics:
+        data = star_metrics[star_type]
+        plt.plot(range(len(data)), data, label=f'{star_type}-Type')
+    plt.xlabel('Epoch')
+    plt.ylabel('Recall')
+    plt.title('Recall by Category')
+    plt.ylim(AccRange)
+    plt.legend()
+    
+    if save:
+        plt.savefig(PLOTTING_DIR + f'{file_name}_Category_Recall.png')
+    
+    plt.show()
+    
+    star_metrics = ExtractReportMetrics(f1_score)
+    
+    plt.figure()
+    for star_type in star_metrics:
+        data = star_metrics[star_type]
+        plt.plot(range(len(data)), data, label=f'{star_type}-Type')
+    plt.xlabel('Epoch')
+    plt.ylabel('F1-score')
+    plt.title('F1-Score by Category')
+    plt.ylim(AccRange)
+    plt.legend()
+    
+    if save:
+        plt.savefig(PLOTTING_DIR + f'{file_name}_Category_F1-Score.png')
     
     plt.show()
 
@@ -344,18 +535,18 @@ def CombinePlot(ParamList):
     
     plt.show()
 
+
 print("\n!TRAINING!\n")
 
-Train_Model(10)
+Train_Model(3)
 
-model.optimizer.learning_rate.assign(initial_learning/5)
+model.optimizer.learning_rate.assign(initial_learning/10)
 
-Train_Model(20)
-#for i in range(1):
-#    model.optimizer.learning_rate.assign(initial_learning/(10**(i+1)))
-#    Train_Model(5*(i+1))
+Train_Model(5)
 
+model.optimizer.learning_rate.assign(initial_learning/100)
 
+Train_Model(492)
 
 Print_Learning()
 
@@ -367,4 +558,14 @@ Compare()
 # model.load_weights('my_model_weights.h5')
 
 
+#Reporting
+# from sklearn.metrics import classification_report
+#y_pred = model.predict(x_test)
+
+#y_pred_labels = np.argmax(y_pred, axis=1)
+
+#y_true_labels = np.squeeze(y_test)
+
+#report = classification_report(y_true_labels, y_pred_labels)
+#print(report)
 
