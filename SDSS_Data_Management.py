@@ -125,7 +125,7 @@ def StoreSpectralData():
         DownloadData(s, maxIndex)
         time.sleep(120)
 
-def SearchClassBounds(stellar_class, fluxMax, lmbMin, lmbMax):
+def SearchClassBounds(stellar_class, lengthMin, lengthMax, fluxMax, lmbMin, lmbMax):
     MnemonicDict = {
         'O': 'Oh,',
         'B': 'Be',
@@ -147,13 +147,19 @@ def SearchClassBounds(stellar_class, fluxMax, lmbMin, lmbMax):
         with fits.open(DataFileDir + f'{samplename}.fits') as hdul:
             test = hdul[1].data
         
+        dataLength = len(test['flux'])
+        
+        lengthMin = max(lengthMin, dataLength)
+        lengthMax = min(lengthMax, dataLength)
         fluxMax = max(fluxMax, np.max(test['flux']))
         lmbMin = min(lmbMin, 10**np.min(test['loglam']))
         lmbMax = max(lmbMax, 10**np.max(test['loglam']))
     
-    return (fluxMax, lmbMin, lmbMax)
+    return (lengthMin, lengthMax, fluxMax, lmbMin, lmbMax)
 
 def GetDataBounds():
+    lengthMin = np.inf
+    lengthMax = -np.inf
     fluxMax = 0
     lmbMin = np.inf
     lmbMax = -np.inf
@@ -161,8 +167,11 @@ def GetDataBounds():
     stellar_class = ['O', 'B', 'A', 'F', 'G', 'K', 'M']
     
     for s in stellar_class:
-        fluxMax, lmbMin, lmbMax = SearchClassBounds(s, fluxMax, lmbMin, lmbMax)
+        lengthMin, lengthMax, fluxMax, lmbMin, lmbMax = SearchClassBounds(s, lengthMin, lengthMax, fluxMax, lmbMin, lmbMax)
     
+    
+    print(f'lengthMin = {lengthMin}')
+    print(f'lengthMax = {lengthMax}')
     print(f'fluxMax = {fluxMax}')
     print(f'lmbMin = {lmbMin}')
     print(f'lmbMax = {lmbMax}')
