@@ -6,10 +6,7 @@ SDSS_Data_Subset/Spectra/*
 *.npy
 
 # Specific Analyses
-Learning_Plots/Conv32*
-Learning_Plots/Layer*
-Learning_Plots/Leaky*
-Learning_Plots/LogLam*
+Learning_Plots/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

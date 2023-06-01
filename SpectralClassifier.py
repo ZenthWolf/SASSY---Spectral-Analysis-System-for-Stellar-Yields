@@ -31,7 +31,24 @@ FLUX_MAX = 252.4149169921875
 LAMBDA_MIN = 3552.2204983897977
 LAMBDA_MAX = 10399.206408133097
 
-WINDOW_SIZE = 5
+FRONT_LAYER = 0
+LAYERS = [128]
+INITIAL_LEARNING = 0.0001
+DROPOUT_RATE = 0.1
+WINDOW_SIZE = 25
+NUMBER_FILTERS = 10
+KERNEL_SIZE = 10
+
+FILE_NAME = 'Less Complex Window Up'
+EXTEND_NAME = False
+
+if EXTEND_NAME:
+    for l in LAYERS:
+        FILE_NAME += f'-{l}'
+    
+    FILE_NAME += f'_Learning-E{int(int(math.log10(INITIAL_LEARNING)))}'
+    FILE_NAME += f'_Window-{WINDOW_SIZE}'
+    FILE_NAME += f'_Conv-{NUMBER_FILTERS}-{KERNEL_SIZE}'
 
 LOSS_RANGE = [0.0, 1.0]
 ACCURACY_RANGE = [0.6, 1.0]
@@ -126,7 +143,8 @@ def PrepData(sourceTable, localNorm = True):
         wavelength = (10 ** spectrum['loglam'] - LAMBDA_MIN)/LAMBDA_MAX
         
         # Smooth
-        flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE, mode='same')
+        if WINDOW_SIZE > 1:
+            flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE, mode='same')
         
         if (zeros := SPECTRA_MAX_COUNT - len(flux)) > 0:
             zero_array = np.zeros(zeros)
@@ -143,21 +161,25 @@ def PrepData(sourceTable, localNorm = True):
     output_data = np.array(output_data_list)
     return (input_data, output_data)
 
-(x_train, y_train) = PrepData(trainingTable, localNorm = True)
-(x_test, y_test) = PrepData(testingTable, localNorm = True)
-
-#x_train = np.load('x_train.npy')
-#y_train = np.load('y_train.npy')
-#x_test = np.load('x_test.npy')
-#y_test = np.load('y_test.npy')
+def FullClassInformation(sourceTable):
+    output_data_list = []
+    
+    for i in range(len(sourceTable)):
+        testingStar = Table(sourceTable[i])
+        starID = testingStar['subclass'][0]
+        
+        output_data_list.append(starID)
+    
+    return output_data_list
 
 def create_model(nodes_per_layer, learning_rate, dropout_rate):
     model = tf.keras.models.Sequential()
     
-    model.add(tf.keras.layers.Conv1D(32, 32, activation='relu'))
+    model.add(tf.keras.layers.Conv1D(NUMBER_FILTERS, KERNEL_SIZE, activation='relu'))
     model.add(tf.keras.layers.Flatten())
     
-    model.add(tf.keras.layers.Dense(20, activation='relu'))
+    if FRONT_LAYER > 0:
+        model.add(tf.keras.layers.Dense(FRONT_LAYER, activation='relu'))
     
     for nodes in nodes_per_layer:
         model.add(tf.keras.layers.Dense(nodes, activation='relu'))
@@ -218,69 +240,12 @@ def Train_Model(epochs):
     
     return
 
-layers = [700, 700]
-initial_learning = 0.0001
-dropout_rate = 0.1
-
-model = create_model(layers, initial_learning, dropout_rate)
-
-file_name = 'Layer'
-
-for l in layers:
-    file_name += f'-{l}'
-
-file_name += f'_Learning-E{int(int(math.log10(initial_learning)))}'
-file_name += f'_Window-{WINDOW_SIZE}'
-file_name += '_Conv-32-10'
-
-print("\n!TRAINING!\n")
-
-Train_Model(3)
-
-model.optimizer.learning_rate.assign(initial_learning/10)
-
-Train_Model(5)
-
-model.optimizer.learning_rate.assign(initial_learning/100)
-
-Train_Model(142)
-
-model.optimizer.learning_rate.assign(initial_learning/500)
-
-Train_Model(1850)
-
-SASSY.Plot_Learning(training_loss, training_accuracy, file_name, 'Training', PLOTTING_DIR, isExtended = False)
-SASSY.Plot_Learning(testing_loss, testing_accuracy, file_name, 'Testing', PLOTTING_DIR, isExtended = False)
-
-SASSY.Plot_Learning_Comparison(training_loss, testing_loss, file_name, 'Loss', PLOTTING_DIR, LOSS_RANGE)
-SASSY.Plot_Learning_Comparison(training_accuracy, testing_accuracy, file_name, 'Accuracy', PLOTTING_DIR, ACCURACY_RANGE)
-
-'''
-SASSY.Plot_Category_Metric(precision_rating, file_name, 'Validation_Precision', PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Metric(recall_rating, file_name, 'Validation_Recall', PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Metric(f1_score, file_name, 'Validation_F1-Score', PLOTTING_DIR, save = False)
-
-SASSY.Plot_Category_Metric(training_precision_rating, file_name, 'Training_Precision', PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Metric(training_recall_rating, file_name, 'Training_Recall', PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Metric(training_f1_score, file_name, 'Training_F1-Score', PLOTTING_DIR, save = False)
-
-SASSY.Plot_Category_Hist(placing_hist, file_name, "Validation_Placement", PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Hist(training_placing_hist, file_name, "Training_Placement", PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Hist(content_hist, file_name, "Validation_Contents", PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Hist(training_content_hist, file_name, "Training_Contents", PLOTTING_DIR, save = False)
-'''
-
-data = np.column_stack((training_accuracy, training_loss))
-np.savetxt(PLOTTING_DIR + f'{file_name}_Training.csv', data, delimiter=',')
-
-data = np.column_stack((testing_accuracy, testing_loss))
-np.savetxt(PLOTTING_DIR + f'{file_name}_Testing.csv', data, delimiter=',')
 
 def WriteAnalysis(metric, name, needsConversion = False):
     if needsConversion:
         metric = [array.tolist() for array in metric]
     
-    file_path = PLOTTING_DIR + file_name + f'_{name}_Validation.json'
+    file_path = PLOTTING_DIR + FILE_NAME + f'_{name}_Validation.json'
     with open(file_path, "w") as file:
         json.dump(metric, file)
 
@@ -302,3 +267,137 @@ def SaveAnalysis():
     
     WriteAnalysis(content_hist, 'content_hist')
     WriteAnalysis(training_content_hist, 'training_content_hist')
+
+def SaveModel(model, filename):
+    model.save(f'{filename}.h5')
+
+def SaveWeights(model, filename):
+    model.save_weights(f'{filename}.h5')
+
+def LoadModel(filename):
+    loaded_model = tf.keras.models.load_model(f'{filename}.h5')
+    return loaded_model
+
+def LoadWeights(model, filename):
+    model.load_weights(f'{filename}.h5')
+
+def Subclass_Recall_Report(pred_label, true_label, full_label):
+    Subclass_Recall = {}
+    
+    for pred_ind, prediction in enumerate(pred_label):
+        if (subclass := full_label[pred_ind]) not in Subclass_Recall:
+            Subclass_Recall[subclass] = [0, 0, 0]
+        if prediction == true_label[pred_ind]:
+            Subclass_Recall[full_label[pred_ind]][0] += 1
+        else:
+            Subclass_Recall[full_label[pred_ind]][1] += 1
+    
+    for key in Subclass_Recall:
+        Subclass_Recall[key][2] = 100 * Subclass_Recall[key][0] / (Subclass_Recall[key][0] + Subclass_Recall[key][1])
+    return Subclass_Recall
+
+def Generate_Testing_Recall_Report():
+    pred = model.predict(x_test)
+    pred_label = np.argmax(pred, axis=1)
+
+    true_label = y_test.squeeze()
+    full_label = FullClassInformation(testingTable)
+    
+    return Subclass_Recall_Report(pred_label, true_label, full_label)
+
+def Generate_Training_Recall_Report():
+    pred = model.predict(x_train)
+    pred_label = np.argmax(pred, axis=1)
+
+    true_label = y_train.squeeze()
+    full_label = FullClassInformation(trainingTable)
+    
+    return Subclass_Recall_Report(pred_label, true_label, full_label)
+
+def CollateReports(TrainingReport, TestingReport):
+    keys = list(TrainingReport.keys())
+    keys.sort()
+
+    for key in keys:
+        pad = 19-len(key)
+        paddedkey = key + ' ' * pad
+        
+        TrainCount = str(TrainingReport[key][0] + TrainingReport[key][1])
+        count_pad = 4 - len(TrainCount)
+        TrainCount = ' ' * count_pad + TrainCount
+        
+        TrainAcc = f'{TrainingReport[key][2]:.2f}'
+        acc_pad = 6 - len(TrainAcc)
+        TrainAcc = ' ' * acc_pad + TrainAcc
+        
+        if key in TestingReport:
+            TestCount = str(TestingReport[key][0] + TestingReport[key][1])
+            te_pad = 4 - len(TestCount)
+            TestCount = ' ' * te_pad + TestCount
+            
+            TestAcc = f'{TestingReport[key][2]:.2f}'
+            acc_pad = 6 - len(TestAcc)
+            TestAcc = ' ' * acc_pad + TestAcc
+            
+            print(f'{paddedkey}: {TrainCount}, {TrainAcc}% || {TestCount}, {TestAcc}%')
+        else:
+            print(f'{paddedkey}: {TrainCount}, {TrainAcc}% || na')
+
+### EXECUTION
+
+with open(PLOTTING_DIR + f'{FILE_NAME}.txt', 'w') as f:
+    f.write(f'Layers: {FRONT_LAYER}')
+    for l in LAYERS:
+        f.write(f' -> {l}')
+    f.write(' -> 6\n')
+    f.write(f'Initial Learning Rate: {INITIAL_LEARNING}\n')
+    f.write(f'Dropout Rate: {DROPOUT_RATE}\n')
+    f.write(f'Smoothing Window Size: {WINDOW_SIZE}\n')
+    f.write(f'Number of filters: {NUMBER_FILTERS}\n')
+    f.write(f'Kernel Size: {KERNEL_SIZE}\n')
+    
+(x_train, y_train) = PrepData(trainingTable, localNorm = True)
+(x_test, y_test) = PrepData(testingTable, localNorm = True)
+
+#x_train = np.load('x_train.npy')
+#y_train = np.load('y_train.npy')
+#x_test = np.load('x_test.npy')
+#y_test = np.load('y_test.npy')
+
+model = create_model(LAYERS, INITIAL_LEARNING, DROPOUT_RATE)
+
+print("\n!TRAINING!\n")
+
+Train_Model(5)
+
+model.optimizer.learning_rate.assign(INITIAL_LEARNING/10)
+
+Train_Model(95)
+
+SASSY.Plot_Learning(training_loss, training_accuracy, FILE_NAME, 'Training', PLOTTING_DIR, isExtended = False)
+SASSY.Plot_Learning(testing_loss, testing_accuracy, FILE_NAME, 'Testing', PLOTTING_DIR, isExtended = False)
+
+SASSY.Plot_Learning_Comparison(training_loss, testing_loss, FILE_NAME, 'Loss', PLOTTING_DIR, LOSS_RANGE)
+SASSY.Plot_Learning_Comparison(training_accuracy, testing_accuracy, FILE_NAME, 'Accuracy', PLOTTING_DIR, ACCURACY_RANGE)
+
+'''
+SASSY.Plot_Category_Metric(precision_rating, FILE_NAME, 'Validation_Precision', PLOTTING_DIR, save = False)
+SASSY.Plot_Category_Metric(recall_rating, FILE_NAME, 'Validation_Recall', PLOTTING_DIR, save = False)
+SASSY.Plot_Category_Metric(f1_score, FILE_NAME, 'Validation_F1-Score', PLOTTING_DIR, save = False)
+
+SASSY.Plot_Category_Metric(training_precision_rating, FILE_NAME, 'Training_Precision', PLOTTING_DIR, save = False)
+SASSY.Plot_Category_Metric(training_recall_rating, FILE_NAME, 'Training_Recall', PLOTTING_DIR, save = False)
+SASSY.Plot_Category_Metric(training_f1_score, FILE_NAME, 'Training_F1-Score', PLOTTING_DIR, save = False)
+
+SASSY.Plot_Category_Hist(placing_hist, FILE_NAME, "Validation_Placement", PLOTTING_DIR, save = False)
+SASSY.Plot_Category_Hist(training_placing_hist, FILE_NAME, "Training_Placement", PLOTTING_DIR, save = False)
+SASSY.Plot_Category_Hist(content_hist, FILE_NAME, "Validation_Contents", PLOTTING_DIR, save = False)
+SASSY.Plot_Category_Hist(training_content_hist, FILE_NAME, "Training_Contents", PLOTTING_DIR, save = False)
+'''
+
+data = np.column_stack((training_accuracy, training_loss))
+np.savetxt(PLOTTING_DIR + f'{FILE_NAME}_Training.csv', data, delimiter=',')
+
+data = np.column_stack((testing_accuracy, testing_loss))
+np.savetxt(PLOTTING_DIR + f'{FILE_NAME}_Testing.csv', data, delimiter=',')
+

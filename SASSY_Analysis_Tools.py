@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 
 from sklearn.metrics import classification_report
 
+#####
+# Analysis Tools
+
 def AnalyzeClassification (predicted_labels, true_labels):
     """ Identify distribution of how stars are labeled by true type, 
     as well as contents per label for SASSY.
@@ -60,6 +63,9 @@ def AnalyzeClassification (predicted_labels, true_labels):
         containment[label_key][truth] += 1
     
     return (report, placement, containment)
+
+#####
+# Plotting Tools
 
 def Plot_Learning(loss, accuracy, filename, title, directory, isExtended = False):
     """Plot learning curve and save to disk.
