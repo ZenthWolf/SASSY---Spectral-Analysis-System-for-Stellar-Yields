@@ -17,6 +17,9 @@ from sklearn.metrics import precision_recall_fscore_support
 #from sklearn.model_selection import GridSearchCV
 #from keras.layers import LeakyReLU
 
+#from scipy.signal import savgol_filter
+from scipy.ndimage import gaussian_filter1d
+
 import SASSY_Analysis_Tools as SASSY
 
 DATA_LIST_DIR = 'SDSS_Data_Subset/'
@@ -32,14 +35,15 @@ LAMBDA_MIN = 3552.2204983897977
 LAMBDA_MAX = 10399.206408133097
 
 FRONT_LAYER = 0
-LAYERS = [128]
-INITIAL_LEARNING = 0.0001
+LAYERS = [128, 128, 128]
+BASE_LEARNING = 0.0001
+INITIAL_LEARNING = BASE_LEARNING
 DROPOUT_RATE = 0.1
-WINDOW_SIZE = 25
-NUMBER_FILTERS = 10
-KERNEL_SIZE = 10
+WINDOW_SIZE = 10
+NUMBER_FILTERS = 32
+KERNEL_SIZE = 32
 
-FILE_NAME = 'Less Complex Window Up'
+FILE_NAME = 'Multilayer_128_128_128_SmoothGauss'
 EXTEND_NAME = False
 
 if EXTEND_NAME:
@@ -112,6 +116,9 @@ training_content_hist  = {
 trainingTable = Table.read(DATA_LIST_DIR + 'Training_Data_Annex.fits')
 testingTable = Table.read(DATA_LIST_DIR + 'Testing_Data_Annex.fits')
 
+with open(DATA_LIST_DIR + 'subclasses.json', "r") as file:
+    subclasses = json.load(file)
+
 class_mapping = {
     'B': np.array([0]),
     'A': np.array([1]),
@@ -133,18 +140,24 @@ def PrepData(sourceTable, localNorm = True):
         with fits.open(DATA_FILE_DIR + f'{starName}.fits') as hdu:
             spectrum = hdu[1].data
         
-        # Normalize
-        fluxMax = FLUX_MAX
-        if localNorm:
-            flux = np.clip(spectrum['flux'], 0, np.inf)
-            fluxMax = np.max(flux)
-        flux = spectrum['flux']/fluxMax
-        flux = np.clip(flux, 0, np.inf)
-        wavelength = (10 ** spectrum['loglam'] - LAMBDA_MIN)/LAMBDA_MAX
+        
+        flux = spectrum['flux']
         
         # Smooth
         if WINDOW_SIZE > 1:
             flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE, mode='same')
+            flux = gaussian_filter1d(flux, 12)
+        
+        
+        # Normalize
+        fluxMax = FLUX_MAX
+        if localNorm:
+        #    flux = np.clip(spectrum['flux'], 0, np.inf)
+            fluxMax = np.max(flux)
+        flux = flux/fluxMax
+        flux = np.clip(flux, 0, np.inf)
+        wavelength = (10 ** spectrum['loglam'] - LAMBDA_MIN)/LAMBDA_MAX
+        
         
         if (zeros := SPECTRA_MAX_COUNT - len(flux)) > 0:
             zero_array = np.zeros(zeros)
@@ -211,6 +224,8 @@ def Train_Model(epochs):
         recall_rating.append(recall)
         f1_score.append(f1)
         
+        UpdateRecollection(predicted_labels, true_labels)
+        
         report, placement, containment = SASSY.AnalyzeClassification (predicted_labels, true_labels)
         
         report_history.append(report)
@@ -245,9 +260,19 @@ def WriteAnalysis(metric, name, needsConversion = False):
     if needsConversion:
         metric = [array.tolist() for array in metric]
     
-    file_path = PLOTTING_DIR + FILE_NAME + f'_{name}_Validation.json'
+    file_path = PLOTTING_DIR + FILE_NAME + f'_{name}.json'
     with open(file_path, "w") as file:
         json.dump(metric, file)
+
+def ReadAnalysis(name, needsConversion = False):
+    file_path = PLOTTING_DIR + FILE_NAME + f'_{name}.json'
+    with open(file_path, "r") as file:
+        metric = json.load(file)
+    
+    if needsConversion:
+        metric = [np.array(lst) for lst in metric]
+    
+    return metric
 
 def SaveAnalysis():
     WriteAnalysis(precision_rating, 'precision_rating', needsConversion=True)
@@ -314,34 +339,45 @@ def Generate_Training_Recall_Report():
     
     return Subclass_Recall_Report(pred_label, true_label, full_label)
 
-def CollateReports(TrainingReport, TestingReport):
-    keys = list(TrainingReport.keys())
-    keys.sort()
+def CollateReports():
+    TrainingReport = Generate_Training_Recall_Report()
+    TestingReport = Generate_Testing_Recall_Report()
+    
+    report_lines = []
+    for key in subclasses:
+        paddedkey = f"{key:20}"
 
-    for key in keys:
-        pad = 19-len(key)
-        paddedkey = key + ' ' * pad
-        
         TrainCount = str(TrainingReport[key][0] + TrainingReport[key][1])
-        count_pad = 4 - len(TrainCount)
-        TrainCount = ' ' * count_pad + TrainCount
-        
+        TrainCount = f'{TrainCount:4}'
+
         TrainAcc = f'{TrainingReport[key][2]:.2f}'
-        acc_pad = 6 - len(TrainAcc)
-        TrainAcc = ' ' * acc_pad + TrainAcc
-        
+        TrainAcc = f'{TrainAcc:6}'
+
         if key in TestingReport:
             TestCount = str(TestingReport[key][0] + TestingReport[key][1])
-            te_pad = 4 - len(TestCount)
-            TestCount = ' ' * te_pad + TestCount
-            
+            TestCount = f'{TestCount:4}'
+
             TestAcc = f'{TestingReport[key][2]:.2f}'
-            acc_pad = 6 - len(TestAcc)
-            TestAcc = ' ' * acc_pad + TestAcc
-            
-            print(f'{paddedkey}: {TrainCount}, {TrainAcc}% || {TestCount}, {TestAcc}%')
+            TestAcc = f'{TestAcc:6}'
+
+            report_lines.append(f'{paddedkey}: {TrainCount}, {TrainAcc}% || {TestCount}, {TestAcc}%')
         else:
-            print(f'{paddedkey}: {TrainCount}, {TrainAcc}% || na')
+            report_lines.append(f'{paddedkey}: {TrainCount}, {TrainAcc}% || na')
+        
+    report = "\n".join(report_lines)
+    return report, TrainingReport, TestingReport
+
+recall_count = []
+for label in FullClassInformation(testingTable):
+    recall_count.append([0, label])
+
+recall_count.append([0, 'Epochs'])
+
+def UpdateRecollection(predicted_labels, true_labels):
+    for index, label in enumerate(predicted_labels):
+        if label == true_labels[index]:
+            recall_count[index][0] += 1
+    recall_count[len(recall_count)-1][0] += 1
 
 ### EXECUTION
 
@@ -359,10 +395,6 @@ with open(PLOTTING_DIR + f'{FILE_NAME}.txt', 'w') as f:
 (x_train, y_train) = PrepData(trainingTable, localNorm = True)
 (x_test, y_test) = PrepData(testingTable, localNorm = True)
 
-#x_train = np.load('x_train.npy')
-#y_train = np.load('y_train.npy')
-#x_test = np.load('x_test.npy')
-#y_test = np.load('y_test.npy')
 
 model = create_model(LAYERS, INITIAL_LEARNING, DROPOUT_RATE)
 
@@ -374,21 +406,22 @@ model.optimizer.learning_rate.assign(INITIAL_LEARNING/10)
 
 Train_Model(95)
 
-SASSY.Plot_Learning(training_loss, training_accuracy, FILE_NAME, 'Training', PLOTTING_DIR, isExtended = False)
-SASSY.Plot_Learning(testing_loss, testing_accuracy, FILE_NAME, 'Testing', PLOTTING_DIR, isExtended = False)
+SASSY.Plot_Learning(training_loss, training_accuracy, FILE_NAME, 'Training', PLOTTING_DIR, isExtended = True)
+SASSY.Plot_Learning(testing_loss, testing_accuracy, FILE_NAME, 'Testing', PLOTTING_DIR, isExtended = True)
 
 SASSY.Plot_Learning_Comparison(training_loss, testing_loss, FILE_NAME, 'Loss', PLOTTING_DIR, LOSS_RANGE)
 SASSY.Plot_Learning_Comparison(training_accuracy, testing_accuracy, FILE_NAME, 'Accuracy', PLOTTING_DIR, ACCURACY_RANGE)
 
+
+SASSY.Plot_Category_Metric(precision_rating, FILE_NAME, 'Validation_Precision', PLOTTING_DIR, save = True)
+SASSY.Plot_Category_Metric(recall_rating, FILE_NAME, 'Validation_Recall', PLOTTING_DIR, save = True)
+SASSY.Plot_Category_Metric(f1_score, FILE_NAME, 'Validation_F1-Score', PLOTTING_DIR, save = True)
+
+SASSY.Plot_Category_Metric(training_precision_rating, FILE_NAME, 'Training_Precision', PLOTTING_DIR, save = True)
+SASSY.Plot_Category_Metric(training_recall_rating, FILE_NAME, 'Training_Recall', PLOTTING_DIR, save = True)
+SASSY.Plot_Category_Metric(training_f1_score, FILE_NAME, 'Training_F1-Score', PLOTTING_DIR, save = True)
+
 '''
-SASSY.Plot_Category_Metric(precision_rating, FILE_NAME, 'Validation_Precision', PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Metric(recall_rating, FILE_NAME, 'Validation_Recall', PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Metric(f1_score, FILE_NAME, 'Validation_F1-Score', PLOTTING_DIR, save = False)
-
-SASSY.Plot_Category_Metric(training_precision_rating, FILE_NAME, 'Training_Precision', PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Metric(training_recall_rating, FILE_NAME, 'Training_Recall', PLOTTING_DIR, save = False)
-SASSY.Plot_Category_Metric(training_f1_score, FILE_NAME, 'Training_F1-Score', PLOTTING_DIR, save = False)
-
 SASSY.Plot_Category_Hist(placing_hist, FILE_NAME, "Validation_Placement", PLOTTING_DIR, save = False)
 SASSY.Plot_Category_Hist(training_placing_hist, FILE_NAME, "Training_Placement", PLOTTING_DIR, save = False)
 SASSY.Plot_Category_Hist(content_hist, FILE_NAME, "Validation_Contents", PLOTTING_DIR, save = False)
@@ -401,3 +434,8 @@ np.savetxt(PLOTTING_DIR + f'{FILE_NAME}_Training.csv', data, delimiter=',')
 data = np.column_stack((testing_accuracy, testing_loss))
 np.savetxt(PLOTTING_DIR + f'{FILE_NAME}_Testing.csv', data, delimiter=',')
 
+SaveAnalysis()
+
+Recall_Report, _, _ = CollateReports()
+WriteAnalysis(Recall_Report, 'Recall Report')
+WriteAnalysis(recall_count, 'recall_count')
