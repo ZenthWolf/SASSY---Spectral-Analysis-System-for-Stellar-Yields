@@ -4,7 +4,9 @@ Created on Sat May 27 15:47:26 2023
 
 @author: Zenth
 """
+import json
 import matplotlib.pyplot as plt
+import numpy as np
 
 from sklearn.metrics import classification_report
 
@@ -321,44 +323,136 @@ def Plot_Category_Hist_Compare(star_metrics, training_star_metrics, name, title,
 #WS = 1
 #ParamList.append([ly, il, WS])
 
-'''
-def CombinePlot(ParamList):
+
+def Learning_Cross_Comparison(labels, directory):
+    accuracy_data = {}
+    loss_data = {}
+    
+    for label in labels:
+        data = np.loadtxt(directory + label + '_Testing.csv', delimiter=',')
+        accuracy = data[:,0]
+        loss = data[:,1]
+        
+        accuracy_data[label] = accuracy
+        loss_data[label] = loss
+    
     plt.figure()
     
-    for name in ParamList:
-        file_name = name[3] + 'Layer'
-        label_name= 'Lys'
-        
-        for l in name[0]:
-            file_name += f'-{l}'
-            label_name += f'-{l}'
-            
-        
-        file_name += f'_Learning-E{name[1]}'
-        label_name += f'_Lr-E{name[1]}'
-        
-        file_name += f'_Window-{name[2]}'
-        label_name += f'_WS-{name[2]}'
-        
-        file_name += '_Conv-32-10_Validation.csv'
-        
-        label_name = name[3]
-        if label_name == '':
-            label_name = 'Base_'
-        
-        data = np.loadtxt(PLOTTING_DIR + file_name, delimiter=',')
-        accuracy = []
-        for p in data:
-            accuracy.append(p[0])
-        plt.plot(range(len(accuracy)), accuracy, label=label_name)
+    for label in labels:
+        epochs = range(len(accuracy_data[label]))
+        plt.plot(epochs, accuracy_data[label], label=label)
     
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy')
     plt.title('Accuracy Comparison')
-    plt.ylim([0.6, 1.0])
+    plt.ylim([0.6,1.0])
     plt.legend()
     
-    plt.savefig(PLOTTING_DIR + 'Combined_Comparison_Validation.png')
+    plt.show()
+    
+    plt.figure()
+    
+    for label in labels:
+        epochs = range(len(loss_data[label]))
+        plt.plot(epochs, loss_data[label], label=label)
+    
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Loss Comparison')
+    plt.ylim([0.0,1.0])
+    plt.legend()
     
     plt.show()
-'''
+
+def Category_Cross_Comparison(labels, directory):
+    precision_data = {
+        'B': {},
+        'A': {},
+        'F': {},
+        'G': {},
+        'K': {},
+        'M': {}
+    }
+    recall_data = {
+        'B': {},
+        'A': {},
+        'F': {},
+        'G': {},
+        'K': {},
+        'M': {}
+    }
+    f1_data = {
+        'B': {},
+        'A': {},
+        'F': {},
+        'G': {},
+        'K': {},
+        'M': {}
+    }
+    
+    for label in labels:
+        with open(directory + label + '_precision_rating.json') as file:
+            precision_rating = json.load(file)
+        
+        precision_rating = [np.array(lst) for lst in precision_rating]
+        precision_rating = ExtractReportMetrics(precision_rating)
+        
+        for star_type in precision_rating:
+            precision_data[star_type][label] = precision_rating[star_type]
+        
+        with open(directory + label + '_recall_rating.json') as file:
+            recall_rating = json.load(file)
+        
+        recall_rating = [np.array(lst) for lst in recall_rating]
+        recall_rating = ExtractReportMetrics(recall_rating)
+        
+        for star_type in recall_rating:
+            recall_data[star_type][label] = recall_rating[star_type]
+        
+        with open(directory + label + '_f1_score.json') as file:
+            f1_score = json.load(file)
+        
+        f1_score = [np.array(lst) for lst in f1_score]
+        f1_score = ExtractReportMetrics(f1_score)
+        
+        for star_type in f1_score:
+            f1_data[star_type][label] = f1_score[star_type]
+    
+    for star_type in precision_data:
+        plt.figure()
+        for label in labels:
+            epochs = range(len(precision_data[star_type][label]))
+            plt.plot(epochs, precision_data[star_type][label], label=label)
+        plt.xlabel('Epoch')
+        plt.ylabel('Precision')
+        plt.title(f'Precision Comparison of {star_type} Stars')
+        plt.ylim([0.6,1.0])
+        plt.legend()
+        
+        plt.show()
+        
+    for star_type in recall_data:
+        plt.figure()
+        for label in labels:
+            epochs = range(len(recall_data[star_type][label]))
+            plt.plot(epochs, recall_data[star_type][label], label=label)
+        plt.xlabel('Epoch')
+        plt.ylabel('Recall')
+        plt.title(f'Recall Comparison of {star_type} Stars')
+        plt.ylim([0.6,1.0])
+        plt.legend()
+        
+        plt.show()
+        
+    for star_type in f1_data:
+        plt.figure()
+        for label in labels:
+            epochs = range(len(f1_data[star_type][label]))
+            plt.plot(epochs, f1_data[star_type][label], label=label)
+        plt.xlabel('Epoch')
+        plt.ylabel('F1-score')
+        plt.title(f'F1-Score Comparison of {star_type} Stars')
+        plt.ylim([0.6,1.0])
+        plt.legend()
+        
+        plt.show()
