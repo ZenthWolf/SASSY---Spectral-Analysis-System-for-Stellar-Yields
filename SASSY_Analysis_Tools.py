@@ -4,14 +4,291 @@ Created on Sat May 27 15:47:26 2023
 
 @author: Zenth
 """
+
+from astropy.table import Table
+from astropy.io import fits
+
 import json
+import math
 import matplotlib.pyplot as plt
 import numpy as np
 
 from sklearn.metrics import classification_report
 
+#from scipy.signal import savgol_filter
+from scipy.ndimage import gaussian_filter1d
+
 #####
 # Analysis Tools
+
+class DataManager:
+    """
+    Holds methods for loading and saving results and data from SASSY.
+    
+    Methods
+    -------
+    write_analysis(metric, name needsConversion=False):
+    Saves the provided metric to a JSON file.
+    
+    -------
+    read_analysis(name, needsConversion=False)
+    Reads the JSON file for the named metric and returns it.
+    
+    -------
+    prep_data(sourceTable, localNorm=True)
+    Loads stellar data from FITS files identified in the sourceTable and
+    returns preprocessed training and validation data sets.
+    
+    -------
+    prep_data_features(sourceTable, localNorm=True)
+    Loads stellar data from FITS files identified in the sourceTable and
+    returns preprocessed training and validation data sets with features.
+    """
+    def __init__(self, FILE_NAME='RecentSASSY',
+                 RESULT_DIR='Learning_Plots/',
+                 DATA_FILE_DIR='SDSS_Data_Subset/Spectra/',
+                 WINDOW_SIZE=0,
+                 FLUX_MAX=252.4149169921875,
+                 LAMBDA_MIN=math.log(3552.2204983897977),
+                 LAMBDA_MAX=math.log(10399.206408133097),
+                 SPECTRA_MAX_COUNT=4633
+                 ):
+        self.RESULT_DIR = RESULT_DIR
+        self.FILE_NAME = FILE_NAME
+        self.WINDOW_SIZE = WINDOW_SIZE
+        self.FLUX_MAX = FLUX_MAX
+        self.LAMBDA_MIN = LAMBDA_MIN
+        self.LAMBDA_MAX = LAMBDA_MAX
+        self.SPECTRA_MAX_COUNT = SPECTRA_MAX_COUNT
+        
+        self.class_mapping = {
+            'B': np.array([0]),
+            'A': np.array([1]),
+            'F': np.array([2]),
+            'G': np.array([3]),
+            'K': np.array([4]),
+            'M': np.array([5])
+        }
+    
+    def write_analysis(self, metric, name, needsConversion=False):
+        """
+        Saves the provided metric to a JSON file.
+
+        Parameters
+        ----------
+        metric : list or numpy.ndarray
+            Data to be saved.
+        name : string
+            Name of the file to save (prefer using variable name).
+        needsConversion : boolean, optional
+            Whether this metric need to be converted to list first.
+            (Note: automate this). The default is False.
+
+        Returns
+        -------
+        None.
+
+        """
+        if needsConversion:
+            metric = [array.tolist() for array in metric]
+        
+        file_path = self.RESULT_DIR + self.FILE_NAME + f'_{name}.json'
+        with open(file_path, "w") as file:
+            json.dump(metric, file)
+    
+    def read_analysis(self, name, needsConversion=False):
+        """
+        Reads the JSON file for the named metric and returns it.
+
+        Parameters
+        ----------
+        name : string
+            File name to load (typically the variable name).
+        needsConversion : boolean, optional
+            Whether this metric need to be converted to numpy array.
+            The default is False.
+
+        Returns
+        -------
+        metric : list or numpy.ndarray
+            Data loaded from previous analysis.
+
+        """
+        file_path = self.RESULT_DIR + self.FILE_NAME + f'_{name}.json'
+        with open(file_path, "r") as file:
+            metric = json.load(file)
+        
+        if needsConversion:
+            metric = [np.array(lst) for lst in metric]
+        
+        return metric
+    
+    def prep_data(self, sourceTable, localNorm=True):
+        """
+        Loads data to be used for model training or evaluation.
+
+        Parameters
+        ----------
+        sourceTable : astropy.Table
+            Table which identifies stellar data to load (for training or
+            validation).
+        localNorm : boolean, optional
+            Whether to use a local normalization over a global one.
+            The default is True.
+
+        Returns
+        -------
+        input_data : numpy.ndarray
+            Data to be fed as input into the Neural Net model.
+        output_data : numpy.ndarray
+            Labels expected from the Neural Net model.
+
+        """
+        input_data_list = []
+        output_data_list = []
+        
+        for i in range(len(sourceTable)):
+            if i%100 == 0:
+                print(f'{i} / {len(sourceTable)}')
+            testingStar = Table(sourceTable[i])
+            starName = testingStar['specobjid'][0]
+            with fits.open(self.DATA_FILE_DIR + f'{starName}.fits') as hdu:
+                spectrum = hdu[1].data
+            
+            
+            flux = spectrum['flux']
+            
+            # Smooth
+            if self.WINDOW_SIZE > 1:
+                flux = np.convolve(flux, np.ones(self.WINDOW_SIZE)/self.WINDOW_SIZE, mode='same')
+                flux = gaussian_filter1d(flux, 12)
+                #Olde
+                #flux = gaussian_filter1d(flux, 12)
+                #flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE,
+                #       mode='same')
+                #flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE,
+                #       mode='same')
+                #flux = savgol_filter(flux, 101, 2)
+            
+            
+            # Normalize
+            fluxMax = self.FLUX_MAX
+            if localNorm:
+                fluxMax = np.max(flux)
+            flux = flux/fluxMax
+            flux = np.clip(flux, 0, np.inf)
+            wavelength = (10 ** spectrum['loglam'] - self.LAMBDA_MIN)/ \
+                         self.LAMBDA_MAX
+            
+            if (zeros := self.SPECTRA_MAX_COUNT - len(flux)) > 0:
+                zero_array = np.zeros(zeros)
+                flux = np.append(flux, zero_array)
+                wavelength = np.append(wavelength, zero_array)
+            
+            sample_data = np.concatenate((flux[:, np.newaxis],
+                                          wavelength[:, np.newaxis]),
+                                         axis=1)
+            sample_class = self.class_mapping[testingStar['subclass'][0][0]]
+            
+            input_data_list.append(sample_data)
+            output_data_list.append(sample_class)
+        
+        input_data = np.array(input_data_list)
+        output_data = np.array(output_data_list)
+        return (input_data, output_data)
+    
+    def prep_data_features(self, sourceTable, localNorm=True):
+        """
+        Loads data to be used for model training or evaluation. Includes
+        features of average flux.
+
+        Parameters
+        ----------
+        sourceTable : astropy.Table
+            Table which identifies stellar data to load (for training or
+            validation).
+        localNorm : boolean, optional
+            Whether to use a local normalization over a global one.
+            The default is True.
+
+        Returns
+        -------
+        input_data : numpy.ndarray
+            Data to be fed as input into the Neural Net model.
+        output_data : numpy.ndarray
+            Labels expected from the Neural Net model.
+
+        """
+        input_data_list = []
+        output_data_list = []
+        
+        for i in range(len(sourceTable)):
+            if i%100 == 0:
+                print(f'{i} / {len(sourceTable)}')
+            testingStar = Table(sourceTable[i])
+            starName = testingStar['specobjid'][0]
+            starClass = testingStar['subclass'][0][0]
+            with fits.open(self.DATA_FILE_DIR + f'{starName}.fits') as hdu:
+                spectrum = hdu[1].data
+            
+            flux = spectrum['flux']
+            
+            # Smooth
+            if self.WINDOW_SIZE > 1:
+                flux = np.convolve(flux, np.ones(self.WINDOW_SIZE)/ \
+                                                 self.WINDOW_SIZE, mode='same'
+                                                )
+                flux = gaussian_filter1d(flux, 12)
+                #Olde
+                #flux = gaussian_filter1d(flux, 12)
+                #flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE,
+                #       mode='same')
+                #flux = np.convolve(flux, np.ones(WINDOW_SIZE)/WINDOW_SIZE,
+                #       mode='same')
+                #flux = savgol_filter(flux, 101, 2)
+            
+            # Normalize
+            fluxMax = self.FLUX_MAX
+            if localNorm:
+                fluxMax = np.max(flux)
+            flux = flux/fluxMax
+            flux = np.clip(flux, 0, np.inf)
+            wavelength = (spectrum['loglam'] - self.LAMBDA_MIN)/ \
+                         (self.LAMBDA_MAX - self.LAMBDA_MIN)
+            
+            if (zeros := self.SPECTRA_MAX_COUNT - len(flux)) > 0:
+                zero_array = np.zeros(zeros)
+                flux = np.append(flux, zero_array)
+                wavelength = np.append(wavelength, zero_array)
+            
+            wavelength_bins = [(0.0, 0.1), (0.1, 0.2), (0.3, 0.4), (0.4, 0.5),
+                               (0.5, .6), (.6, .7), (.7, .8), (.8, .9),
+                               (.9, 1.0)
+                              ]
+            feature_bins = len(wavelength_bins)
+            
+            sample_data = np.empty((feature_bins + self.SPECTRA_MAX_COUNT))
+            for i, (bin_start, bin_end) in enumerate(wavelength_bins):
+                indices = np.logical_and(wavelength >= bin_start,
+                                         wavelength <= bin_end)
+                bin_flux = flux[indices]
+                if len(bin_flux) != 0:
+                    sample_data[i] = np.mean(bin_flux)
+                else:
+                    sample_data[i] = 0
+            
+            #sample_data = np.concatenate((flux[:, np.newaxis], 
+            #                              wavelength[:, np.newaxis]), axis=1
+            #                            )
+            sample_data[feature_bins:] = flux
+            
+            input_data_list.append(sample_data)
+            #input_data_list.append(aggregated_flux)
+            output_data_list.append(self.class_mapping[starClass])
+        
+        input_data = np.array(input_data_list)
+        output_data = np.array(output_data_list)
+        return (input_data, output_data)
 
 def AnalyzeClassification (predicted_labels, true_labels):
     """ Identify distribution of how stars are labeled by true type, 
@@ -206,6 +483,7 @@ def Plot_Category_Metric(metric, filename, title, directory, save = False):
         plt.plot(range(len(data)), data, label=f'{star_type}-Type')
     plt.xlabel('Epoch')
     plt.ylabel(f'{title}')
+    plt.ylim([0.0, 1.0])
     plt.title(f'{title} by Category')
     plt.legend()
     
